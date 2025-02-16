@@ -1,4 +1,4 @@
-(ns pelinrakentaja-engine.dev.tila.clock)
+(ns pelinrakentaja-tila.tila.clock)
 
 (def clock-evaluations {::start (fn [{:keys [self]}]
                                   (true? (get-in self [:started?])))
@@ -62,4 +62,5 @@
                    :started? true
                    :paused? false
                    :unpause? false
-                   :stop? false})
+                   :stop? false
+                   :system? true})

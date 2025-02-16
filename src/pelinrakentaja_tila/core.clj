@@ -1,5 +1,4 @@
-(ns pelinrakentaja-tila.core
-  #_(:require [pelinrakentaja-engine.utils.log :as log]))
+(ns pelinrakentaja-tila.core)
 
 (def effects (atom {:no-op (fn [_self _required state] state)}))
 (def evaluations (atom {:true (constantly true)}))
@@ -22,31 +21,22 @@
   Runs through transitions for current FSM state on the signal and returns a new FSM state"
   [fsm state]
   #_(log/log :update-entity-behaviors fsm)
-;  (prn :> fsm)
-;  (prn :state> state)
   (let [{:keys [current states pre]} fsm
         current-state-id (:state current)
-                                        ; _ (log/log :debug :update-entity-behaviors current-state-id)
-  ;      _ (prn :> current-state-id)
         pre-transitions (get-in pre [:transitions])
         transitions (into [] (concat pre-transitions (get-in states [current-state-id :transitions])))
         transition (loop [{when-fn :when :as transition} (first transitions)
                           transitions (rest transitions)
                           state state]
-                                        ;         (log/log :debug :transitioning transition)
- ;                    (prn :> :transitioning transition)
                      (if (or (nil? transition)
                              (every? true? (when-fn state)))
                        transition
                        (recur (first transitions) (rest transitions) state)))]
-;    (prn :> :transitioned transition)
     (if (some? transition)
-      (do
-;        (prn :debug :update-entity-behaviors-> current-state-id :-> (:switch transition))
-        (-> fsm
-            (assoc-in [:current :state] (:switch transition))
-            (assoc-in [:current :effect] (get-in fsm [:states (:switch transition) :effect]))
-            (assoc-in [:current :post-effect] (:post-effect transition))))
+      (-> fsm
+          (assoc-in [:current :state] (:switch transition))
+          (assoc-in [:current :effect] (get-in fsm [:states (:switch transition) :effect]))
+          (assoc-in [:current :post-effect] (:post-effect transition))) 
       fsm)))
 
 (defn create-effect-function
@@ -191,8 +181,7 @@
                               :path)) ;; TODO: figure out pathing (maybe provide 3rd parameter for key)
                       (assoc collected (second require) (partial require-by-path (second require)))))
                   {}
-                  (:require fsm-initial))]
-    (prn :requires> requires)
+                  (:require fsm-initial))] 
     {:fsm (create-fsm fsm-initial)
      :requires requires
      :self (partial require-by-id (:id fsm-initial))
@@ -213,8 +202,10 @@
 
 (defn register-behavior
   [entity fsm new-effects new-evaluations]
-  (swap! effects merge new-effects)
-  (swap! evaluations merge new-evaluations)
+  (when new-effects 
+    (swap! effects merge new-effects))
+  (when new-evaluations 
+    (swap! evaluations merge new-evaluations))
   (process-fsm (assoc fsm :id (:id entity))))
 
 (comment {:behaviours {:clock {:fsm {}}}
@@ -250,3 +241,50 @@
                  (recur fsm state (inc done))))))
 
          #_(affect state :player [::hurt 40]))
+
+(defn generate-id
+  [id]
+  (let [generate? (= :generate (-> id namespace keyword))]
+    (if generate?
+      (keyword (gensym (name id)))
+      id)))
+
+(defn update-entity
+  [state entity-id]
+  (let [{:keys [update apply-effect] :as entity-behavior} (get-in state [:behaviors entity-id])
+        {:keys [fsm state]} (update entity-behavior state)]
+    (prn entity-behavior)
+    (assoc-in (apply-effect fsm state) [:behaviors entity-id] fsm)))
+
+(defn add-entity
+  ([state entity]
+   {:pre [(some? (:id entity))]}
+   (let [id (generate-id (:id entity))
+         entity (assoc entity
+                       :id id
+                       :static? true)]
+     (assoc-in state [:entities :data id] entity)))
+  ([state entity logic]
+   (add-entity state entity logic nil nil {}))
+  ([state entity logic affections]
+   (add-entity state entity logic nil nil affections))
+  ([state entity logic effects evaluations]
+   (add-entity state entity logic effects evaluations {}))
+  ([state entity logic effects evaluations affections]
+   {:pre [(some? (:id entity))
+          (or (some? (:type entity))
+              (true? (:system? entity)))]} 
+   (let [id (generate-id (:id entity))
+         entity (assoc entity
+                       :id id
+                       :controlled? true)
+         entity (create-affections entity affections)
+         logic-linked-to-id (assoc logic :id id)
+         logic-fsm (register-behavior entity logic-linked-to-id effects evaluations)]
+     (cond-> state
+       true (assoc-in [:behaviors id] logic-fsm)
+       true (assoc-in [:entities :data id] entity)
+       true (update-in [:entities :entity-ids] (comp vec conj) id)
+       (not (:system? entity)) (update-in [:entities :renderable-entities] (comp vec conj) id)
+       (not (:system? entity)) (assoc-in [:entities :entity->types id] (:type entity))
+       (not (:system? entity)) (update-in [:entities :type->entities (:type entity)] (comp vec conj) id)))))
