@@ -254,7 +254,18 @@
 
 (defn operate-fsm-on->
   [fsm key bodies]
-  `(update ~fsm ~key (fn [~'states] (-> ~'states ~@bodies))))
+  `(update ~fsm
+           ~key
+           (fn [~'states]
+             ~(loop [body (first bodies)    ; (with-effect :asdf)
+                     bodies (rest bodies)   ; ((with-effect :def))
+                     final 'states]
+                (if-not (some? body)
+                  final
+                  (recur (first bodies)  ; (with-effeft def
+                         (rest bodies)   ; nil
+                         (concat
+                           (list (first body) final) (rest body))))))))
 
 (defmacro update-states-in-fsm->
   [fsm & bodies]
@@ -265,12 +276,13 @@
   (operate-fsm-on-> fsm :require bodies))
 
 (defmacro on-state->
-  [state-key & bodies]
-  `(fn [~'state]
-     ~(loop [body (first bodies)
-             bodies (rest bodies)
-             final '()]
-        (if-not (some? body)
-          final
-          (recur (first bodies)
-                 (rest bodies) (concat final (list (concat (list (first body) state-key) (rest body)))))))))
+  [states state-key & bodies]
+  (loop [body (first bodies)       ; (with-effect :asdf)
+              bodies (rest bodies)      ; ((with-effect :def))
+              final states]
+         (if-not (some? body)
+           final
+           (recur (first bodies)        ; (with-effeft def
+                  (rest bodies)         ; nil
+                  (concat
+                    (list (first body) final state-key) (rest body))))))
